@@ -163,7 +163,7 @@ def train(
     epochs=1000,
     batch_size=32,
     lr=0.001,
-    reinits=1000,
+    reinits=100,
 ):
     r"""
     Selects action and eta_net to optimize the upper confidence bound objective.
@@ -243,5 +243,4 @@ def train(
                 best_sol_score = objective_value
                 best_nets = nets
         optimizer.zero_grad()
-    wandb.log({"acq_value": best_sol_score}, commit=False)
     return best_sol, best_sol_score, best_nets

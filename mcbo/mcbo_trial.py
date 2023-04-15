@@ -60,10 +60,10 @@ def mcbo_trial(
     algo_profile['n_bo_iters'] rounds using the algorithm specified in algo_profile. 
     Logs to wandb the average and best score across rounds. 
     '''
-    torch.seed()
-    # Get script directory
-    script_dir = os.path.dirname(os.path.realpath(sys.argv[0]))
-    # results_folder = script_dir + "/results/" + problem + "/" + algo + "/"
+
+    # Set seed
+    torch.manual_seed(algo_profile["seed"])
+    np.random.seed(algo_profile["seed"])
 
     # Initial evaluations
     X = generate_initial_design(algo_profile, env_profile)
@@ -154,7 +154,6 @@ def mcbo_trial(
                 results.best_intervention_levels[0], np.array([network_observation_at_X.numpy()[best_obs_index]]),
                 axis=0)
             results.record_intervention(intervention_set=new_x[0:2])
-            print(mean_at_X)
             print(
                 f"i:{results.iteration}, budget:{round(results.remaining_budget, 2)}, "
                 f"avg_R: {torch.mean(mean_at_X)}, latest_R: {mean_at_new_x[0]}, "
