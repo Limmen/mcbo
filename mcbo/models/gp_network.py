@@ -140,7 +140,6 @@ class GaussianProcessNetwork(Model):
         Since do-interventions will break the dependance on all parents, we remove data
         where a do-intervention was performed using mask. 
         """
-
         self.node_GPs[k] = FixedNoiseGP(
             train_X=train_X_node_k[mask],
             train_Y=train_Y_node_k[mask],

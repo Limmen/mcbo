@@ -23,7 +23,6 @@ def optimize_acqf_and_get_suggested_point(
     input_dim = bounds.shape[1]
     num_restarts = 10 * input_dim
     raw_samples = 100 * input_dim
-
     ic_gen = (
         gen_one_shot_kg_initial_conditions
         if isinstance(acq_func, qKnowledgeGradient)
@@ -90,7 +89,7 @@ def optimize_acqf_and_get_suggested_point(
             candidate = baseline_candidate
             acq_value = baseline_acq_value
 
-    wandb.log({"acq_value": acq_value}, commit=False)
+    # wandb.log({"acq_value": acq_value}, commit=False)
 
     new_x = candidate.detach().view([batch_size, input_dim])
     return new_x, acq_value

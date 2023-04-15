@@ -1,7 +1,7 @@
 from botorch.acquisition import MCAcquisitionFunction
 from botorch.acquisition.objective import MCAcquisitionObjective
 from botorch.models.model import Model
-from botorch.sampling.samplers import MCSampler
+from botorch.sampling import MCSampler
 from botorch.utils.transforms import concatenate_pending_points, t_batch_mode_transform
 from torch import Tensor
 from typing import Optional

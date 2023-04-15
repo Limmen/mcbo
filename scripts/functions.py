@@ -352,6 +352,7 @@ class ToyGraph(CausalEnv):
         maximize, so I take the negative of the final output. 
         '''
         output[..., 2] = -self.do_int(unintervened_output_2, X_do[..., 2], X[..., 2])
+
         return output
 
 

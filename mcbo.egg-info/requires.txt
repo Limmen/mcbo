@@ -1,0 +1,10 @@
+gpytorch>=1.8.1
+pyro-ppl>=1.8.0
+scipy
+numpy
+pandas
+matplotlib
+gym
+ipykernel
+pyglet
+wandb

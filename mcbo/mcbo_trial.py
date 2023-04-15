@@ -1,4 +1,5 @@
 import numpy as np
+import math
 import os
 import sys
 import time
@@ -11,7 +12,7 @@ from botorch.acquisition import (
     qSimpleRegret,
 )
 from botorch.acquisition import PosteriorMean as GPPosteriorMean
-from botorch.sampling.samplers import SobolQMCNormalSampler
+from botorch.sampling import SobolQMCNormalSampler
 
 from torch import Tensor
 from typing import Callable, List, Optional
@@ -26,6 +27,7 @@ from mcbo.models.gp_network import GaussianProcessNetwork
 from mcbo.utils.posterior_mean import PosteriorMean
 from mcbo.models import eta_network
 import wandb
+from os_cbo.dtos.cbo.cbo_results import CBOResults
 
 def obj_mean(
     X: Tensor, function_network: Callable, network_to_objective_transform: Callable
@@ -38,9 +40,18 @@ def obj_mean(
     Ys = function_network(X.repeat(100000, 1, 1))
     return torch.mean(network_to_objective_transform(Ys), dim=0)
 
+def toygraph_cost(intervention: bool = True):
+    if intervention:
+        return math.pow(2, 4)
+    else:
+        return 3*math.pow(2, -2)
+
 def mcbo_trial(
     algo_profile: dict,
     env_profile: dict,
+    budget: float,
+    variables: List[str],
+    optimal_value: float,
     function_network: Callable,
     network_to_objective_transform: Callable,
 ) -> None:
@@ -56,11 +67,11 @@ def mcbo_trial(
 
     # Initial evaluations
     X = generate_initial_design(algo_profile, env_profile)
-    
     mean_at_X = obj_mean(X, function_network, network_to_objective_transform)
     network_observation_at_X = function_network(X)
     observation_at_X = network_to_objective_transform(network_observation_at_X)
     # Current best objective value.
+    best_obs_index = np.argmax(observation_at_X).item()
     best_obs_val = observation_at_X.max().item()
 
     # Historical best observed objective values and running times.
@@ -69,10 +80,18 @@ def mcbo_trial(
 
     init_batch_id = 1
 
+    results = CBOResults(remaining_budget=budget, exploration_set=[["X", "Z"]])
+    results.update_cost(cost=toygraph_cost(intervention=True)*2)
+    results.update_cost(cost=toygraph_cost(intervention=False)*1)
+    results.best_intervention_targets[0] = np.array([-np.inf])
+    results.best_intervention_set = np.array([["empty"]])
+    results.best_intervention_levels[0] = np.array([network_observation_at_X.numpy()[best_obs_index]])
+    results.optimal_intervention_mean = optimal_value
+
     old_nets = []  # only used by NMCBO to reuse old computation
+    print("Starting MCBO execution")
     for iteration in range(init_batch_id, algo_profile["n_bo_iter"] + 1):
-        print("Sampling policy: " + algo_profile["algo"])
-        print("Iteration: " + str(iteration))
+        results.iteration = iteration
 
         # New suggested point
         t0 = time.time()
@@ -91,44 +110,67 @@ def mcbo_trial(
         t1 = time.time()
         runtimes.append(t1 - t0)
 
-        # Evalaute network at new point
-        network_observation_at_new_x = function_network(new_x)
+        # Implement OS decision here
+        # TODO
+        intervene = True
+        observation_probability = 0.0
+        observation_set = ["X", "Z", "Y"]
+        cost = toygraph_cost(intervention=intervene)
+        results.update_cost(cost=cost)
+        if intervene:
+            # Evalaute network at new point
+            network_observation_at_new_x = function_network(new_x)
 
-        # The mean value of the new action. 
-        mean_at_new_x = obj_mean(
-            new_x, function_network, network_to_objective_transform
-        )
-        if mean_at_X is None:
-            mean_at_X = mean_at_new_x
+            # The mean value of the new action.
+            mean_at_new_x = obj_mean(
+                new_x, function_network, network_to_objective_transform
+            )
+
+            if mean_at_X is None:
+                mean_at_X = mean_at_new_x
+            else:
+                mean_at_X = torch.cat([mean_at_X, mean_at_new_x], 0)
+
+            # Evaluate objective at new point
+            observation_at_new_x = network_to_objective_transform(
+                network_observation_at_new_x
+            )
+
+            # Update training data
+            X = torch.cat([X, new_x], 0)
+            network_observation_at_X = torch.cat(
+                [network_observation_at_X, network_observation_at_new_x], 0
+            )
+            observation_at_X = torch.cat([observation_at_X, observation_at_new_x], 0)
+
+            # Update historical best observed objective values
+            best_obs_val = observation_at_X.max().item()
+            best_obs_index = np.argmax(observation_at_X).item()
+            hist_best_obs_vals.append(best_obs_val)
+            results.best_intervention_targets[0] = np.append(results.best_intervention_targets[0],
+                                                             np.array([best_obs_val]), axis=0)
+            results.best_intervention_set = np.append(results.best_intervention_set, [["X"]], axis=0)
+            results.best_intervention_levels[0] = np.append(
+                results.best_intervention_levels[0], np.array([network_observation_at_X.numpy()[best_obs_index]]),
+                axis=0)
+            results.record_intervention(intervention_set=new_x[0:2])
+            print(mean_at_X)
+            print(
+                f"i:{results.iteration}, budget:{round(results.remaining_budget, 2)}, "
+                f"avg_R: {torch.mean(mean_at_X)}, latest_R: {mean_at_new_x[0]}, "
+                f"latest_x:{network_observation_at_new_x[0].numpy()}, "
+                f"X'_t: {results.best_intervention_set[-1]}, "
+                f"x'_t: {results.best_intervention_levels[0][-1][variables.index(results.best_intervention_set[-1])]}"
+                f", E[Y|Do(X'_t=x'_t)]: "
+                f"{round(results.best_intervention_targets[0][-1], 2)},"
+                f"E[Y|Do(X^*=x^*)]: {round(results.optimal_intervention_mean, 2)}, "
+                f"P[observe]={round(observation_probability, 4)}, # observations: {len(observation_at_X)}, "
+                f"# interventions: {results.num_intervene_decisions}, "
+                f"observation_set: {observation_set}, "
+                f"intervention_set: {new_x[0:2]}")
         else:
-            mean_at_X = torch.cat([mean_at_X, mean_at_new_x], 0)
-
-        # Evaluate objective at new point
-        observation_at_new_x = network_to_objective_transform(
-            network_observation_at_new_x
-        )
-
-        # Update training data
-        X = torch.cat([X, new_x], 0)
-        network_observation_at_X = torch.cat(
-            [network_observation_at_X, network_observation_at_new_x], 0
-        )
-        observation_at_X = torch.cat([observation_at_X, observation_at_new_x], 0)
-
-        # Update historical best observed objective values
-        best_obs_val = observation_at_X.max().item()
-        hist_best_obs_vals.append(best_obs_val)
-        print("Best value found so far: " + str(best_obs_val))
-        # average_score includes the random exploration runs at the init.
-        wandb.log(
-            {
-                "score": mean_at_new_x,
-                "best_score": torch.max(mean_at_X),
-                "average_score": torch.mean(mean_at_X),
-                "X": new_x,
-            }
-        )
-
+            results.num_observe_decisions += 1
+            results.actions.append(0)
 
 def get_model(
     X: Tensor,
