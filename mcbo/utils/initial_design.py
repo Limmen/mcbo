@@ -1,6 +1,5 @@
 import torch
 
-
 def generate_initial_design_function_networks(
     num_samples: int, input_dim: int, seed=None
 ):
@@ -24,8 +23,7 @@ def random_causal(target, env_profile, N=1):
 
 def generate_initial_design_causal(
     algo_profile: dict,
-    env_profile: dict,
-):
+    env_profile: dict):
     X = random_causal(
         torch.zeros(env_profile["valid_targets"][0].shape),
         env_profile,

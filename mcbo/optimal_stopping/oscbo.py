@@ -7,6 +7,7 @@ from os_cbo.dtos.cbo.cbo_config import CBOConfig
 from os_cbo.dtos.cbo.cbo_results import CBOResults
 from os_cbo.util.cbo_util import CBOUtil
 import os_cbo.constants.constants as constants
+from mcbo.utils.optimisation_policy import get_new_suggested_point, obj_mean
 
 class OSCBO:
     """
@@ -14,13 +15,14 @@ class OSCBO:
     """
 
     @staticmethod
-    def os_cbo(state: CBOResults, cbo_config: CBOConfig, logger: logging.Logger) -> Tuple[bool, List[str]]:
+    def os_cbo(state: CBOResults, cbo_config: CBOConfig, X, network_observation_at_X, observation_at_X, algo_profile,
+               env_profile, function_network, network_to_objective_transform, old_nets, selected_intervention_set,
+               selected_intervention_set_idx, selected_intervention_level) -> Tuple[bool, List[str]]:
         """
         Decides whether to intervene or observe in CBO using optimal stopping
 
         :param state: the current state of the CBO execution
         :param cbo_config: the configuration of the CBO execution
-        :param logger: the logger to use for logging
         :return: True if intervene (stop) else False, observation set
         """
         # Always observe if we have zero observations, to initialize \widehat{\mathbf{F}} and \widehat{\mu}
@@ -28,13 +30,37 @@ class OSCBO:
             return False, cbo_config.scm.variables
 
         # Next intervention to evaluate
-        selected_intervention_set, selected_intervention_set_idx, selected_intervention_level, \
-        intervention_levels, _ = \
-            CBOUtil.optimization_policy(cbo_config=cbo_config, state=state,
-                                        interventional_gps=cbo_config.scm.interventional_gps)
+        new_x, new_net = get_new_suggested_point(
+            X=X,
+            network_observation_at_X=network_observation_at_X,
+            observation_at_X=observation_at_X,
+            algo_profile=algo_profile,
+            env_profile=env_profile,
+            function_network=function_network,
+            network_to_objective_transform=network_to_objective_transform,
+            old_nets=old_nets,
+        )
+        # network_observation_at_new_x = function_network(new_x)
+        # mean_at_new_x = obj_mean(
+        #     new_x, function_network, network_to_objective_transform
+        # )
+        # observation_at_new_x = network_to_objective_transform(
+        #     network_observation_at_new_x
+        # )
+        # intervention_set_identifiers = list(map(lambda x: int(x), new_x.numpy()[0][0:3].tolist()))
+        # if 1 in intervention_set_identifiers:
+        #     selected_intervention_set_idx = intervention_set_identifiers.index(1)
+        # selected_intervention_set = cbo_config.scm.exploration_set[selected_intervention_set_idx]
+        # selected_intervention_level = np.array([network_observation_at_new_x.numpy()[0][selected_intervention_set_idx]])
+
+        # selected_intervention_set, selected_intervention_set_idx, selected_intervention_level, \
+        # intervention_levels, _ = \
+        #     CBOUtil.optimization_policy(cbo_config=cbo_config, state=state,
+        #                                 interventional_gps=cbo_config.scm.interventional_gps)
 
         # MOS
-        observation_set = cbo_config.scm.mos(selected_intervention_set)
+        # observation_set = cbo_config.scm.mos(selected_intervention_set)
+        observation_set = cbo_config.scm.variables
 
         # Always intervene if we have never tried the intervention set before, so that we can initialize \widehat{mu}
         if len(cbo_config.scm.interventions[selected_intervention_set_idx][constants.CBO.INTERVENTIONS_X_INDEX]) == 0:
@@ -47,8 +73,7 @@ class OSCBO:
         # Costs
         intervention_cost = cbo_config.scm.costs[constants.CBO.INTERVENE](
             intervention_set=selected_intervention_set,
-            intervention_levels=
-            intervention_levels[cbo_config.scm.exploration_set.index(selected_intervention_set)])
+            intervention_levels=selected_intervention_level)
         observation_cost = cbo_config.scm.costs[constants.CBO.OBSERVE](observation_set=observation_set)
 
         # Observation bonus
@@ -79,7 +104,12 @@ class OSCBO:
         # Compute expected reward of observing and stopping in the next stage
         v_1, ig_observe, mean_observe, mean_obs_reward = OSCBO.one_step_lookahead_stopping_reward(
             cbo_config=cbo_config, F=F, state=state, observations=cbo_config.scm.observations,
-            observation_set=observation_set, mu=mu)
+            observation_set=observation_set, mu=mu, X=X, network_observation_at_X=network_observation_at_X,
+            observation_at_X=observation_at_X, algo_profile=algo_profile, env_profile=env_profile,
+            function_network=function_network, network_to_objective_transform=network_to_objective_transform,
+            old_nets=old_nets, selected_intervention_set=selected_intervention_set,
+            selected_intervention_set_idx=selected_intervention_set_idx,
+            selected_intervention_level=selected_intervention_level)
         r_observe = v_1 - observation_cost + obs_bonus + mean_obs_reward
 
         # OSLA rule (Corollary 1, Hammar & Dhir)
@@ -94,7 +124,7 @@ class OSCBO:
         state.exp_bonuses.append(mean_obs_reward)
 
         # Logging
-        logger.info(f"R_intervene:{round(r_stop, 3)}, R_obs:{round(r_observe, 3)}, IG_observe: {round(ig_observe, 3)},"
+        print(f"R_intervene:{round(r_stop, 3)}, R_obs:{round(r_observe, 3)}, IG_observe: {round(ig_observe, 3)},"
                     f" ig_stop: {round(ig_stop, 3)}, "
                     f"mean_observe: {round(mean_observe, 3)}, mean_stop: {round(mean_stop, 3)}, "
                     f"cost_stop: {round(intervention_cost, 3)}, cost_observe: {round(observation_cost, 3)}, "
@@ -223,7 +253,10 @@ class OSCBO:
     @staticmethod
     def one_step_lookahead_stopping_reward(
             cbo_config: CBOConfig, F: Dict, mu: Dict, state: CBOResults, observations: np.ndarray,
-            observation_set: List[str]) -> Tuple[float, float, float, float]:
+            observation_set: List[str], X, network_observation_at_X, observation_at_X, algo_profile,
+            env_profile, function_network, network_to_objective_transform, old_nets,
+            selected_intervention_set, selected_intervention_set_idx, selected_intervention_level) \
+            -> Tuple[float, float, float, float]:
         """
         Computes the reward of observing and then stopping in the next time-step.
         This value is then used in the # OSLA rule (Corollary 1, Hammar & Dhir).
@@ -243,8 +276,8 @@ class OSCBO:
             observations_1d=cbo_config.scm.get_observations(observation_set=[var]),
             cbo_config=cbo_config, var=var), cbo_config.scm.manipulative_variables)))
 
-        total_var, mu_var, obs_var, total_mean, mu_mean, obs_mean = \
-            OSCBO.model_descriptive_statistics(mu=mu, F=F, cbo_config=cbo_config)
+        # total_var, mu_var, obs_var, total_mean, mu_mean, obs_mean = \
+        #     OSCBO.model_descriptive_statistics(mu=mu, F=F, cbo_config=cbo_config)
 
         for i in range(cbo_config.observation_acquisition_config.samples_for_mc_estimation):
             # Sample a new observation
@@ -287,16 +320,39 @@ class OSCBO:
             observation_reward = region_bonus + model_bonus + best_bonus
 
             # Compute the next intervention to evaluate based on the updated models
-            selected_intervention_set, selected_intervention_set_idx, selected_intervention_level, \
-            intervention_levels, _ = \
-                CBOUtil.optimization_policy(cbo_config=cbo_config, interventional_gps=new_mu, state=state)
+            # selected_intervention_set, selected_intervention_set_idx, selected_intervention_level, \
+            # intervention_levels, _ = \
+            #     CBOUtil.optimization_policy(cbo_config=cbo_config, interventional_gps=new_mu, state=state)
+
+            # new_x, new_net = get_new_suggested_point(
+            #     X=X,
+            #     network_observation_at_X=network_observation_at_X,
+            #     observation_at_X=observation_at_X,
+            #     algo_profile=algo_profile,
+            #     env_profile=env_profile,
+            #     function_network=function_network,
+            #     network_to_objective_transform=network_to_objective_transform,
+            #     old_nets=old_nets,
+            # )
+            # network_observation_at_new_x = function_network(new_x)
+            # mean_at_new_x = obj_mean(
+            #     new_x, function_network, network_to_objective_transform
+            # )
+            # observation_at_new_x = network_to_objective_transform(
+            #     network_observation_at_new_x
+            # )
+            # intervention_set_identifiers = list(map(lambda x: int(x), new_x.numpy()[0][0:3].tolist()))
+            # if 1 in intervention_set_identifiers:
+            #     selected_intervention_set_idx = intervention_set_identifiers.index(1)
+            # selected_intervention_set = cbo_config.scm.exploration_set[selected_intervention_set_idx]
+            # selected_intervention_level = np.array([network_observation_at_new_x.numpy()[0][selected_intervention_set_idx]])
+
 
             # Compute the stopping reward based on the updated \widehat{P} and \widehat{\mu} and
             # the interventional samples
             intervention_cost = cbo_config.scm.costs[constants.CBO.INTERVENE](
                 intervention_set=selected_intervention_set,
-                intervention_levels=
-                intervention_levels[cbo_config.scm.exploration_set.index(selected_intervention_set)])
+                intervention_levels=selected_intervention_level)
             interventional_samples = np.array([selected_intervention_level])
             r_stop, ig_stop, mean_stop = OSCBO.stopping_reward(
                 interventional_samples=interventional_samples,
