@@ -71,7 +71,7 @@ def psa_config() -> CBOConfig:
                                       kernel_config=causal_kernel_config)
 
     # Costs
-    obs_cost = math.pow(2, -2)
+    obs_cost = math.pow(2, 2)
     intervene_cost = math.pow(2,4)
     intervention_vars_costs = {"C": intervene_cost, "D": intervene_cost}
     observation_vars_costs = {
@@ -120,7 +120,7 @@ if __name__ == '__main__':
         return env.evaluate(X=X)
     algo_profile = {
         "algo": "NMCBO",
-        "seed": 312691,
+        "seed": 61752433,
         "n_init_evals": 2 * (env_profile["input_dim"] + 1),
         "n_bo_iter": 100,
         "beta": 0.5,

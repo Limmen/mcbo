@@ -57,7 +57,7 @@ def toygraph_config() -> CBOConfig:
     beta = 5
     lamb = 0.5  # Factor for UCB exploration bonus
     tau_1 = 5 # Factor for region bonus
-    tau_2 = 2 # Factor for model bonus
+    tau_2 = 5 # Factor for model bonus
     tau_3 = 10 # Factor for best bonus
     seed = 0
 
@@ -119,7 +119,7 @@ if __name__ == '__main__':
         return env.evaluate(X=X)
     algo_profile = {
         "algo": "NMCBO",
-        "seed": 0,
+        "seed": 781,
         "n_init_evals": 2 * (env_profile["input_dim"] + 1),
         "n_bo_iter": 100,
         "beta": 0.5,

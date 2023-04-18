@@ -205,6 +205,8 @@ def mcbo_trial(
         #              old_nets=old_nets, selected_intervention_set=intervention_set, selected_intervention_level=intervention_level,
         #                                           selected_intervention_set_idx=intervention_set_idx)
         intervene = True
+        if np.random.uniform(0., 1.) < 0.5:
+            intervene = False
         observation_probability = 0.0
         observation_set = ["A", "B", "C", "D", "E", "F"]
         if intervene:
