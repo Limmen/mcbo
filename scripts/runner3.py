@@ -119,7 +119,7 @@ if __name__ == '__main__':
         return env.evaluate(X=X)
     algo_profile = {
         "algo": "NMCBO",
-        "seed": 0,
+        "seed": 9991,
         "n_init_evals": 2 * (env_profile["input_dim"] + 1),
         "n_bo_iter": 100,
         "beta": 0.5,

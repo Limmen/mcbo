@@ -15,10 +15,10 @@ import warnings
 warnings.filterwarnings("ignore")
 torch.set_default_dtype(torch.float64)
 debug._set_state(True)
-from mcbo.mcbo_trial import mcbo_trial
+from mcbo.mcbo_trial_two import mcbo_trial
 from mcbo.utils import runner_utils
 from os_cbo.algorithms.cbo import CBO
-from os_cbo.scms.toy_scm import ToySCM
+from os_cbo.scms.psa_scm import PSASCM
 from os_cbo.dtos.acquisition.acquisition_function_type import AcquisitionFunctionType
 from os_cbo.dtos.acquisition.acquisition_optimizer_type import AcquisitionOptimizerType
 from os_cbo.dtos.acquisition.observation_acquisition_function_type import ObservationAcquisitionFunctionType
@@ -34,7 +34,7 @@ from os_cbo.dtos.kernel.causal_rbf_kernel_config import CausalRBFKernelConfig
 from os_cbo.dtos.optimization.objective_type import ObjectiveType
 
 
-def toygraph_config() -> CBOConfig:
+def psa_config() -> CBOConfig:
     # Static hyperparameter constants
     num_obs_per_observation = 1
     evaluation_budget = 300
@@ -45,7 +45,7 @@ def toygraph_config() -> CBOConfig:
     delta = 0
     samples_for_mc_estimation = 10
     epsilon = 1.0
-    eps_noise_terms = [1, 0.5, 0.1] # Gaussian white noise, the numbers are standard deviations
+    eps_noise_terms = [0.1, 0.1, 0.1, 0.1, 0.1, 0.1] # Gaussian white noise, the numbers are standard deviations
     # eps_noise_terms = [0.1, 0, 0] # Gaussian white noise, the numbers are standard deviations
     lengthscale_rbf_kernel = 1. # Larger lengthscale means correlation of close points decays quicker
     variance_rbf_kernel = 1  # Variance term multiplying the exponential in the rbf kernel
@@ -57,7 +57,7 @@ def toygraph_config() -> CBOConfig:
     beta = 5
     lamb = 0.5  # Factor for UCB exploration bonus
     tau_1 = 5 # Factor for region bonus
-    tau_2 = 2 # Factor for model bonus
+    tau_2 = 5 # Factor for model bonus
     tau_3 = 10 # Factor for best bonus
     seed = 0
 
@@ -71,15 +71,16 @@ def toygraph_config() -> CBOConfig:
                                       kernel_config=causal_kernel_config)
 
     # Costs
-    # obs_cost = math.pow(2, -2)
-    obs_cost = 1
+    obs_cost = math.pow(2, -2)
     intervene_cost = math.pow(2,4)
-    intervention_vars_costs = {"X": intervene_cost, "Z": intervene_cost, "Y": intervene_cost}
-    observation_vars_costs = {"X": obs_cost, "Z": obs_cost, "Y": obs_cost}
+    intervention_vars_costs = {"C": intervene_cost, "D": intervene_cost}
+    observation_vars_costs = {
+        "A": obs_cost, "B": obs_cost, "C": obs_cost, "D": obs_cost, "E": obs_cost, "F": obs_cost
+    }
 
     # Initialize SCM
-    toy_scm = ToySCM(gp_config=gp_config,
-                     exploration_set_type=ExplorationSetType.MIS,
+    psa_scm = PSASCM(gp_config=gp_config,
+                     exploration_set_type=ExplorationSetType.POMIS,
                      seed=seed, causal_gp_config=causal_gp_config, eps_noise_terms=eps_noise_terms,
                      intervention_vars_costs=intervention_vars_costs, observation_vars_costs=observation_vars_costs)
     # toy_scm.objective_type = ObjectiveType.MAX
@@ -96,7 +97,7 @@ def toygraph_config() -> CBOConfig:
     log_file_name = f"{date_str}_obs_cost_{math.log(obs_cost, 2)}_int_cost_" \
                     f"{math.log(intervene_cost, 2)}_eps_{'_'.join(list(map(lambda x: str(x), eps_noise_terms)))}" \
                     f"_cbo.log"
-    cbo_config = CBOConfig(scm=toy_scm, num_obs_per_observation=num_obs_per_observation,
+    cbo_config = CBOConfig(scm=psa_scm, num_obs_per_observation=num_obs_per_observation,
                            evaluation_budget=evaluation_budget,
                            max_num_obs=maximum_number_of_observations,
                            acquisition_function_type=AcquisitionFunctionType.NEGATIVE_LOWER_CONFIDENCE_BOUND,
@@ -113,13 +114,13 @@ if __name__ == '__main__':
     # Function that maps the network output to the objective value
     network_to_objective_transform = lambda Y: Y[..., -1]
     network_to_objective_transform = GenericMCObjective(network_to_objective_transform)
-    env = ToyGraph(noise_scales=noise_scale)
+    env = PSAGraph()
     env_profile = env.get_env_profile()
     def function_network(X: Tensor):
         return env.evaluate(X=X)
     algo_profile = {
         "algo": "NMCBO",
-        "seed": 0,
+        "seed": 312691,
         "n_init_evals": 2 * (env_profile["input_dim"] + 1),
         "n_bo_iter": 100,
         "beta": 0.5,
@@ -128,13 +129,13 @@ if __name__ == '__main__':
         "batch_size": 32,
     }
 
-    cbo_config = toygraph_config()
+    cbo_config = psa_config()
 
     mcbo_trial(
         algo_profile=algo_profile,
         env_profile=env_profile,
         function_network=function_network,
         network_to_objective_transform=network_to_objective_transform,
-        budget = 300, optimal_value = 2.17,
-        variables = ["X", "Z", "Y"], cbo_config=cbo_config
+        budget = 300, optimal_value = -5.16,
+        variables = ["A", "B", "C", "D", "E", "F"], cbo_config=cbo_config
     )

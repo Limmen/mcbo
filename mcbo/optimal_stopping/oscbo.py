@@ -218,11 +218,15 @@ class OSCBO:
         :param n: dimension of the multivariate Gaussian
         :return: the KL divergence
         """
-        if np.linalg.det(K_1) == 0:
+        if np.linalg.det(K_1) <=0:
             return 0
-        return max(0, (1 / 2) * (np.trace(np.dot(np.linalg.inv(K_2), K_1)) +
-                                 np.dot(np.transpose(mu_2 - mu_1), (np.dot(np.linalg.inv(K_2), (mu_2 - mu_1)))) -
-                                 n + math.log(np.linalg.det(K_2) / np.linalg.det(K_1)))[0][0])
+        try:
+            kl = max(0, (1 / 2) * (np.trace(np.dot(np.linalg.inv(K_2), K_1)) +
+                                   np.dot(np.transpose(mu_2 - mu_1), (np.dot(np.linalg.inv(K_2), (mu_2 - mu_1)))) -
+                                   n + math.log(np.linalg.det(K_2) / np.linalg.det(K_1)))[0][0])
+            return 1 - math.exp(-kl)
+        except Exception:
+            return 1
 
     @staticmethod
     def model_KL(mu: Dict, F: Dict, new_mu: Dict, new_F: Dict, cbo_config: CBOConfig) -> float:
@@ -242,12 +246,15 @@ class OSCBO:
             mu_1, K_1 = mu[idx].predict_with_full_covariance(input_space)
             mu_2, K_2 = new_mu[idx].predict_with_full_covariance(input_space)
             kl += OSCBO.gaussian_KL(mu_1=mu_1, mu_2=mu_2, K_1=K_1, K_2=K_2, n=len(input_space))
+            # kl = max(kl, OSCBO.gaussian_KL(mu_1=mu_1, mu_2=mu_2, K_1=K_1, K_2=K_2, n=len(input_space)))
 
         for k, v in F.items():
             input_space = new_F[k].model.X
             mu_1, K_1 = F[k].predict_with_full_covariance(input_space)
             mu_2, K_2 = new_F[k].predict_with_full_covariance(input_space)
             kl += OSCBO.gaussian_KL(mu_1=mu_1, mu_2=mu_2, K_1=K_1, K_2=K_2, n=len(input_space))
+            # kl = max(kl, OSCBO.gaussian_KL(mu_1=mu_1, mu_2=mu_2, K_1=K_1, K_2=K_2, n=len(input_space)))
+        kl = kl*(1/(len(cbo_config.scm.exploration_set)+len(F.items())))
         return kl
 
     @staticmethod
@@ -391,13 +398,14 @@ class OSCBO:
         :param kappa: the kappa hyperparameter
         :return: The stopping reward, the information gain, and the estimated mean of the next intervention
         """
-        ig = OSCBO.information_gain(intervention_samples=interventional_samples, mu=mu)
+        ig = OSCBO.information_gain(intervention_samples=interventional_samples, mu=mu,
+                                    intervention_dim=len(interventional_samples[0]))
         mean, _ = mu.predict(next_intervention_level)
         mean = mean[0][0]
         return eta * ig - kappa * mean - intervention_cost, eta * ig, kappa * mean
 
     @staticmethod
-    def information_gain(intervention_samples: np.ndarray, mu: GPyModelWrapper) -> float:
+    def information_gain(intervention_samples: np.ndarray, mu: GPyModelWrapper, intervention_dim: int) -> float:
         """
         Computes the intervention gain of <interventional samples> given the model mu. I.e quantifying
         the reduction in uncertainty about mu from revealing <interventional samples>.
@@ -406,15 +414,19 @@ class OSCBO:
 
         :param intervention_samples: the new interventional samples
         :param mu: the probabilistic model
+        :param intervention_dim: dimension of the intervention set
         :return: the information gain
         """
         if len(intervention_samples) == 0:
             return 0.0
-        A = intervention_samples.reshape(len(intervention_samples), 1)
+        A = intervention_samples.reshape(len(intervention_samples), intervention_dim)
         I = np.identity(len(A))
         _, sigma = mu.predict(A)
         _, K_A = mu.predict_with_full_covariance(A)
-        return (1 / 2) * math.log(np.linalg.det(I + K_A.dot(sigma)))
+        try:
+            return (1 / 2) * math.log(np.linalg.det(I + K_A.dot(sigma)))
+        except Exception:
+            return 0.0
 
     @staticmethod
     def fit_mu(cbo_config: CBOConfig, mean_functions: List[Callable], var_functions: List[Callable]) -> Dict:
@@ -448,11 +460,25 @@ class OSCBO:
         :return: the fitted model
         """
         p = {}
-        for k, v in cbo_config.scm.observational_gps.items():
-            obs = cbo_config.scm.get_observations(observation_set=list(k), observations=observations)
-            p[k] = cbo_config.scm.gp_config.create_gp(
-                X=obs[:, 0].reshape(len(obs), 1), Y=obs[:, 1].reshape(len(obs), 1),
-                input_dim=cbo_config.scm.intervention_spaces[k[0]].input_dim
-            )
-            p[k].optimize()
+        if cbo_config.scm.name == "ToySCM":
+            for k, v in cbo_config.scm.observational_gps.items():
+                obs = cbo_config.scm.get_observations(observation_set=list(k), observations=observations)
+                p[k] = cbo_config.scm.gp_config.create_gp(
+                    X=obs[:, 0].reshape(len(obs), 1), Y=obs[:, 1].reshape(len(obs), 1),
+                    input_dim=cbo_config.scm.intervention_spaces[k[0]].input_dim
+                )
+                p[k].optimize()
+        else:
+            for key, gp in cbo_config.scm.observational_gps.items():
+                # conditional_var, target_var = key
+                obs = cbo_config.scm.get_observations(list(key), observations=observations)
+                columns = []
+                for i in range(len(key)-1):
+                    columns.append(cbo_config.scm.variables.index(key[i]))
+                target_index = cbo_config.scm.variables.index(key[-1])
+                p[key] = cbo_config.scm.gp_config.create_gp(
+                    X=obs[:, columns].reshape((len(obs), len(columns))),
+                    Y=obs[:, target_index].reshape((len(obs), 1)),
+                    input_dim=len(columns))
+                p[key].optimize()
         return p
