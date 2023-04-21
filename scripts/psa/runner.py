@@ -43,7 +43,7 @@ def psa_config() -> CBOConfig:
     kappa = 1
     eta = 2
     delta = 0
-    samples_for_mc_estimation = 10
+    samples_for_mc_estimation = 1
     epsilon = 1.0
     eps_noise_terms = [0.1, 0.1, 0.1, 0.1, 0.1, 0.1] # Gaussian white noise, the numbers are standard deviations
     # eps_noise_terms = [0.1, 0, 0] # Gaussian white noise, the numbers are standard deviations

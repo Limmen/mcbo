@@ -141,7 +141,9 @@ def mcbo_trial(
     old_nets = []  # only used by NMCBO to reuse old computation
     print("Starting MCBO execution")
     iteration = 1
+    iteration_time = 0
     while results.remaining_budget > 0:
+        iteration_start = time.time()
         results.iteration = iteration
 
         if len(results.actions) > 0 and results.actions[-1] == 0:
@@ -199,12 +201,12 @@ def mcbo_trial(
         # intervention_level = np.array([network_observation_at_new_x.numpy()[0][intervention_set_idx]])
 
         # Implement OS decision here
-        # intervene, observation_set = OSCBO.os_cbo(state=results, cbo_config=cbo_config, X=X, network_observation_at_X=network_observation_at_X,
-        #              observation_at_X=observation_at_X, algo_profile=algo_profile, env_profile=env_profile,
-        #              function_network=function_network, network_to_objective_transform=network_to_objective_transform,
-        #              old_nets=old_nets, selected_intervention_set=intervention_set, selected_intervention_level=intervention_level,
-        #                                           selected_intervention_set_idx=intervention_set_idx)
-        intervene = True
+        intervene, observation_set = OSCBO.os_cbo(state=results, cbo_config=cbo_config, X=X, network_observation_at_X=network_observation_at_X,
+                     observation_at_X=observation_at_X, algo_profile=algo_profile, env_profile=env_profile,
+                     function_network=function_network, network_to_objective_transform=network_to_objective_transform,
+                     old_nets=old_nets, selected_intervention_set=intervention_set, selected_intervention_level=intervention_level,
+                                                  selected_intervention_set_idx=intervention_set_idx)
+        # intervene = True
         if np.random.uniform(0., 1.) < 0.5:
             intervene = False
         observation_probability = 0.0
@@ -298,6 +300,8 @@ def mcbo_trial(
         results.update_best_intervention_set_level_target(cbo_config=cbo_config)
 
         best_intervention_set_idx = cbo_config.scm.exploration_set.index(results.best_intervention_set[-1].tolist())
+        iteration_end = time.time()
+        interation_time = iteration_end - iteration_start
         print(
             f"i:{results.iteration}, budget:{round(results.remaining_budget, 2)}, "
             f"X'_t: {results.best_intervention_set[-1]}, "
@@ -309,7 +313,7 @@ def mcbo_trial(
             f"E[Y|Do(X^*=x^*)]: {round(results.optimal_intervention_mean, 2)}, "
             f"P[observe]={round(observation_probability, 4)}, # observations: {cbo_config.scm.num_observations()}, "
             f"# interventions: {results.num_intervene_decisions}, observation_set: {observation_set}, "
-            f"intervention_set: {intervention_set}")
+            f"intervention_set: {intervention_set}, interation_time: {interation_time}")
         iteration+=1
 
     results.observation_data = cbo_config.scm.observations

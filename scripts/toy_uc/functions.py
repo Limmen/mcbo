@@ -360,11 +360,12 @@ class ToyUCGraph(CausalEnv):
     r""" The ToyGraph environment from [agliettiCausalBayesianOptimization2020].
     """
     def __init__(self, noise_scales=1.0):
-        parent_nodes = [[], [0], [1]]
+        parent_nodes = [[], [0], [0,1]]
         dag = DAG(parent_nodes)
-        super(ToyGraph, self).__init__(dag)
+        super(ToyUCGraph, self).__init__(dag)
         self.valid_targets = [
             torch.tensor([0, 1, 0]),
+            torch.tensor([1, 0, 0]),
             torch.tensor([0, 0, 0]),
         ]
 
@@ -388,12 +389,16 @@ class ToyUCGraph(CausalEnv):
         X = self.do_map(X)
         output = torch.empty(X.shape[:-1] + torch.Size([self.dag.get_n_nodes()]))
         noise0 = self.additive_noise_dists[0].rsample(sample_shape=output[..., 0].shape)
-        noise3 = self.additive_noise_dists[3].rsample(sample_shape=output[..., 0].shape)
+        uc = Normal(0, 0.5)
+        noise3 = uc.rsample(output[..., 0].shape)
+        # print(noise0)
+        # print(self.additive_noise_dists[0])
+        # noise3 = self.additive_noise_dists[3].rsample(sample_shape=output[..., 0].shape)
         output[..., 0] = self.do_int(noise0 + noise3, X_do[..., 0], X[..., 0])
 
         noise1 = self.additive_noise_dists[1].rsample(sample_shape=output[..., 1].shape)
         output[..., 1] = self.do_int(
-            (torch.exp(-output[..., 0]) + noise1), X_do[..., 1], X[..., 1]
+            (torch.exp(-output[..., 0]) -1.5 + noise1), X_do[..., 1], X[..., 1]
         )
 
         noise2 = self.additive_noise_dists[2].rsample(sample_shape=output[..., 2].shape)
