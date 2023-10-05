@@ -1,5 +1,5 @@
 import pytest
-from scripts.functions import Env, Dropwave, Alpine2, Ackley, Rosenbrock, ToyGraph, PSAGraph
+from mcbo.scms.functions import Env, Dropwave, Alpine2, Ackley, Rosenbrock, ToyGraph, PSAGraph
 import torch
 
 def	test_function():

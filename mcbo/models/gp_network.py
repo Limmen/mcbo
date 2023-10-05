@@ -12,6 +12,7 @@ from botorch.models.model import Model
 from botorch.models import FixedNoiseGP
 from botorch import fit_gpytorch_model
 from botorch.posteriors import Posterior
+from gpytorch.means.constant_mean import ConstantMean
 from botorch.models.transforms import Standardize
 from gpytorch.mlls import ExactMarginalLogLikelihood
 from torch import Tensor

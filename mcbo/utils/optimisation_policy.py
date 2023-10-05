@@ -29,7 +29,6 @@ def get_new_suggested_point(
         network_to_objective_transform: Callable,
         old_nets: List,
 ) -> Tensor:
-
     algo = algo_profile["algo"]
 
     algos_interventions_not_implemented = ["UCB, KG, EI, EICF"]
@@ -45,34 +44,6 @@ def get_new_suggested_point(
     model, acq_fun_input_dim = get_model(
         X, network_observation_at_X, observation_at_X, algo_profile, env_profile
     )
-
-    if algo in algos_interventions_not_implemented:
-        acquisition_function, posterior_mean_function = get_acq_fun(
-            model,
-            network_to_objective_transform,
-            observation_at_X,
-            algo_profile,
-            env_profile,
-        )
-        new_x, new_score = optimize_acqf_and_get_suggested_point(
-            acq_func=acquisition_function,
-            bounds=torch.tensor(
-                [
-                    [0.0 for i in range(acq_fun_input_dim)],
-                    [1.0 for i in range(acq_fun_input_dim)],
-                ]
-            ),
-            batch_size=1,
-            posterior_mean=posterior_mean_function,
-        )
-        return new_x, None
-
-    r"""
-    The approach is general for both causal BO environments (interventional=True) and 
-    function network environments. For both we loop of the possible intervention targets.
-    The 'target' for function networks makes no difference to the output and only a 
-    single set of targets is contained in valid_targets. 
-    """
 
     best_x = None
     best_score = -torch.inf
@@ -236,22 +207,7 @@ def get_model(
 ):
     input_dim = env_profile["input_dim"]
     algo = algo_profile["algo"]
-    if algo == "EIFN":
-        model = GaussianProcessNetwork(
-            train_X=X,
-            train_Y=network_observation_at_X,
-            algo_profile=algo_profile,
-            env_profile=env_profile,
-        )
-    elif algo == "EICF":
-        model = fit_gp_model(X=X, Y=network_observation_at_X)
-    elif algo == "EI":
-        model = fit_gp_model(X=X, Y=observation_at_X)
-    elif algo == "KG":
-        model = fit_gp_model(X=X, Y=observation_at_X)
-    elif algo == "UCB":
-        model = fit_gp_model(X=X, Y=observation_at_X)
-    elif algo == "MCBO":
+    if algo == "MCBO":
         model = GaussianProcessNetwork(
             train_X=X,
             train_Y=network_observation_at_X,

@@ -315,7 +315,6 @@ class ToyGraph(CausalEnv):
             torch.tensor([1, 0, 0]),
             torch.tensor([0, 0, 0]),
         ]
-
         self.additive_noise_dists = functions_utils.noise_scales_to_normals(
             noise_scales, self.dag.get_n_nodes()
         )

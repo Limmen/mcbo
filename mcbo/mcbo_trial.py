@@ -1,3 +1,4 @@
+import logging
 import numpy as np
 import time
 import random
@@ -7,26 +8,20 @@ from mcbo.utils.initial_design import generate_initial_design
 from os_cbo.dtos.cbo.cbo_results import CBOResults
 from os_cbo.dtos.cbo.cbo_config import CBOConfig
 import os_cbo.constants.constants as constants
-from mcbo.optimal_stopping.oscbo import OSCBO
 from os_cbo.util.cbo_util import CBOUtil
 from mcbo.utils.initial_design import random_causal
-from mcbo.utils.optimisation_policy import get_new_suggested_point, obj_mean, get_acq_fun
+from mcbo.utils.optimisation_policy import get_new_suggested_point, obj_mean
+from os_cbo.util.observation_util import ObservationUtil
 
 def mcbo_trial(
     algo_profile: dict,
     env_profile: dict,
     budget: float,
     variables: List[str],
-    optimal_value: float,
     cbo_config : CBOConfig,
     function_network: Callable,
     network_to_objective_transform: Callable,
 ) -> None:
-    r'''
-    Interacts with the environment specified by env_profile and function_network for 
-    algo_profile['n_bo_iters'] rounds using the algorithm specified in algo_profile. 
-    Logs to wandb the average and best score across rounds. 
-    '''
 
     # Set seed
     torch.manual_seed(algo_profile["seed"])
@@ -38,15 +33,13 @@ def mcbo_trial(
     mean_at_X = obj_mean(X, function_network, network_to_objective_transform)
     network_observation_at_X = function_network(X)
     observation_at_X = network_to_objective_transform(network_observation_at_X)
+
     # Current best objective value.
-    best_obs_index = np.argmax(observation_at_X).item()
     best_obs_val = observation_at_X.max().item()
 
     # Historical best observed objective values and running times.
     hist_best_obs_vals = [best_obs_val]
     runtimes = []
-
-    init_batch_id = 1
 
     results = CBOResults(remaining_budget=budget, exploration_set=cbo_config.scm.exploration_set)
 
@@ -137,7 +130,6 @@ def mcbo_trial(
     old_nets = []  # only used by NMCBO to reuse old computation
     print("Starting MCBO execution")
     iteration = 1
-    iteration_time = 0
     while results.remaining_budget > 0:
         iteration_start = time.time()
         results.iteration = iteration
@@ -189,19 +181,19 @@ def mcbo_trial(
         intervention_set = cbo_config.scm.exploration_set[intervention_set_idx]
         intervention_level = np.array([network_observation_at_new_x.numpy()[0][intervention_set_idx]])
 
-        # Implement OS decision here
-        intervene, observation_set = OSCBO.os_cbo(state=results, cbo_config=cbo_config, X=X, network_observation_at_X=network_observation_at_X,
-                     observation_at_X=observation_at_X, algo_profile=algo_profile, env_profile=env_profile,
-                     function_network=function_network, network_to_objective_transform=network_to_objective_transform,
-                     old_nets=old_nets, selected_intervention_set=intervention_set, selected_intervention_level=intervention_level,
-                                                  selected_intervention_set_idx=intervention_set_idx)
+        if not cbo_config.scm.causal_gp_config.causal_prior:
+            collect_observations = False
+            observation_set = cbo_config.scm.variables
+        else:
+            collect_observations, _, observation_set = ObservationUtil.observation_policy(
+                cbo_config=cbo_config, state=results, logger=logging.getLogger(), mcbo=True
+            )
+        intervene = not collect_observations
         if 1 not in intervention_set_identifiers:
             intervene=False
 
-
-        observation_probability = 0.0
-        observation_set = ["X", "Z", "Y"]
         if intervene:
+
             # Update training data
             if mean_at_X is None:
                 mean_at_X = mean_at_new_x
@@ -213,17 +205,14 @@ def mcbo_trial(
             )
             observation_at_X = torch.cat([observation_at_X, observation_at_new_x], 0)
             best_obs_val = observation_at_X.max().item()
-            best_obs_index = np.argmax(observation_at_X).item()
             hist_best_obs_vals.append(best_obs_val)
 
-            # OSCO
             intervention_set_idx = intervention_set_identifiers.index(1)
             intervention_set = cbo_config.scm.exploration_set[intervention_set_idx]
             intervention_level = network_observation_at_X[-1][intervention_set_idx]
             cost = cbo_config.scm.costs[constants.CBO.INTERVENE](intervention_set=intervention_set,
                                                                  intervention_levels = [intervention_level])
             target_interventional_mean = -mean_at_X[-1]
-            print(f"INTERVENE outcome: {target_interventional_mean}")
             # Add the new x-value to the intervention dataset
             if len(cbo_config.scm.interventions[
                        cbo_config.scm.exploration_set.index(intervention_set)][
@@ -273,7 +262,6 @@ def mcbo_trial(
                 mean_at_X = torch.cat([mean_at_X, mean_at_new_x], 0)
 
             X = torch.cat([X, new_obs_tensor_orig], 0)
-            new_obs_orig_np = np.array(new_obs_tensor_orig.numpy())
             new_obs_np = np.array(new_obs_tensor.numpy())
             network_observation_at_X = torch.cat(
                 [network_observation_at_X, new_obs_tensor], 0
@@ -283,12 +271,8 @@ def mcbo_trial(
             new_obs_copy = new_obs_np.copy()
             new_obs_copy[0][-1] = -new_obs_copy[0][-1]
 
-            print(f"new obs:{new_obs_copy}")
-
             cbo_config.scm.update_observational_gps(new_observations=new_obs_copy,
                                                     observation_set=observation_set)
-            print("obs:")
-            print(cbo_config.scm.observations)
 
             # Update the causal prior with the new data
             mean_functions, var_functions = CBOUtil.update_causal_prior(
@@ -309,18 +293,15 @@ def mcbo_trial(
         best_intervention_set_idx = cbo_config.scm.exploration_set.index(results.best_intervention_set[-1])
         iteration_end = time.time()
         iteration_time = iteration_end-iteration_start
-        print("best intervention targets:")
-        print(results.best_intervention_targets)
+
         print(
             f"i:{results.iteration}, budget:{round(results.remaining_budget, 2)}, "
             f"X'_t: {results.best_intervention_set[-1]}, "
             f"x'_t: {results.best_intervention_levels[best_intervention_set_idx][-1]}, "
             f", E[Y|Do(X'_t=x'_t)]: ",
-            f"{round(results.best_intervention_targets[best_intervention_set_idx][-1], 2)},"            
-            f"latest X'_t: {intervention_set}, latest x'_t: {intervention_level}, latest E[Y|Do(X'_t=x'_t)]: "
-            f"{round(target_interventional_mean.item(), 2)}, "            
+            f"{round(results.best_intervention_targets[best_intervention_set_idx][-1], 2)}," 
             f"E[Y|Do(X^*=x^*)]: {round(results.optimal_intervention_mean, 2)}, "
-            f"P[observe]={round(observation_probability, 4)}, # observations: {cbo_config.scm.num_observations()}, "
+            f"# observations: {cbo_config.scm.num_observations()}, "
             f"# interventions: {results.num_intervene_decisions}, observation_set: {observation_set}, "
             f"intervention_set: {intervention_set}, iteration_time: {iteration_time}")
         iteration+=1
@@ -329,7 +310,17 @@ def mcbo_trial(
     results.intervention_data = cbo_config.scm.interventions
     results.total_time = time.time() - results.start_time
     print(f"MCBO execution complete, total time: {round(results.total_time, 2)}s")
+    seed = algo_profile['seed']
+    file_name_suffix = f"toyscm_obs_acquistion_{cbo_config.observation_acquisition_config.type.value}_" \
+                       f"seed_{seed}_epsilon_" \
+                       f"{cbo_config.observation_acquisition_config.epsilon}_budget_{budget}_exploration_set_" \
+                       f"{cbo_config.scm.exploration_set_type.value}_" \
+                       f"observation_set_{cbo_config.scm.observation_set_type.value}_" \
+                       f"acquisition_{cbo_config.acquisition_function_type.value}_" \
+                       f"intervene_cost_{cbo_config.scm.intervention_vars_costs[cbo_config.scm.variables[0]]}_obs_cost_" \
+                       f"{cbo_config.scm.observation_vars_costs[cbo_config.scm.variables[0]]}_l_{cbo_config.l}_" \
+                       f"mc_samples_{cbo_config.mc_samples}_kappa_{cbo_config.observation_acquisition_config.kappa}"
 
-    results_file = f"mcbo_seed_{algo_profile['seed']}.json"
+    results_file = f"{file_name_suffix}.json"
     print(f"Saving the results to file: {results_file}")
     results.to_json_file(results_file)
