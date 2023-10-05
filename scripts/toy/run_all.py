@@ -28,7 +28,8 @@ from os_cbo.dtos.kernel.causal_rbf_kernel_config import CausalRBFKernelConfig
 
 
 def toygraph_config(budget: int, kappa: int, mc_samples: int, l :int, obs_cost: float,
-                    intervene_cost: float, seed: int, epsilon: float) -> CBOConfig:
+                    intervene_cost: float, seed: int, epsilon: float,
+                    observation_acquisition: ObservationAcquisitionFunctionType) -> CBOConfig:
     """
     Gets the SCM config
     """
@@ -72,7 +73,7 @@ def toygraph_config(budget: int, kappa: int, mc_samples: int, l :int, obs_cost: 
 
     # Specify observation acquisition config
     observation_acquisition_config = ObservationAcquisitionFunctionConfig(
-        kappa=kappa, type=ObservationAcquisitionFunctionType.OSCO, epsilon=epsilon,
+        kappa=kappa, type=observation_acquisition, epsilon=epsilon,
         samples_for_mc_estimation=mc_samples, initial_collection_size=num_initial_observations)
 
     # Specify CBO config
@@ -137,7 +138,8 @@ if __name__ == '__main__':
                                                 cbo_config = toygraph_config(budget=budget, kappa=kappa, l=l,
                                                                              obs_cost=observation_cost,
                                                                              intervene_cost=intervene_cost, seed=seed,
-                                                                             mc_samples=mc_samples, epsilon=epsilon)
+                                                                             mc_samples=mc_samples, epsilon=epsilon,
+                                                                             observation_acquisition=obs_acquisition)
                                                 algo_profile = {
                                                     "algo": "NMCBO",
                                                     "seed": seed,
