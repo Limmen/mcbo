@@ -54,7 +54,11 @@ def mcbo_trial(
         if 1 in intervention_set_identifiers:
             intervention_set_idx = intervention_set_identifiers.index(1)
             intervention_set = cbo_config.scm.exploration_set[intervention_set_idx]
-            intervention_level = network_observation_at_X[i][intervention_set_idx]
+            intervention_level = []
+            for var in intervention_set:
+                var_idx = cbo_config.scm.variables.index(var)
+                intervention_level.append(network_observation_at_X[i][var_idx].item())
+            intervention_level = torch.tensor(intervention_level)
             cost = cbo_config.scm.costs[constants.CBO.INTERVENE](intervention_set=intervention_set,
                                                                  intervention_levels = [intervention_level])
             target_interventional_mean = -mean_at_X[i]
@@ -64,7 +68,7 @@ def mcbo_trial(
                        constants.CBO.INTERVENTIONS_X_INDEX]) == 0:
                 cbo_config.scm.interventions[cbo_config.scm.exploration_set.index(intervention_set)][
                     constants.CBO.INTERVENTIONS_X_INDEX] = \
-                    np.array([[intervention_level]])
+                    np.array([intervention_level.numpy()])
             else:
                 cbo_config.scm.interventions[
                     cbo_config.scm.exploration_set.index(intervention_set)][
@@ -72,7 +76,7 @@ def mcbo_trial(
                     cbo_config.scm.interventions[
                         cbo_config.scm.exploration_set.index(intervention_set)][
                         constants.CBO.INTERVENTIONS_X_INDEX],
-                    np.array([[intervention_level]]), axis=0)
+                    np.array([intervention_level.numpy()]), axis=0)
             # Add the new y-value to the intervention dataset
             if len(cbo_config.scm.interventions[
                        cbo_config.scm.exploration_set.index(intervention_set)][
@@ -209,17 +213,22 @@ def mcbo_trial(
 
             intervention_set_idx = intervention_set_identifiers.index(1)
             intervention_set = cbo_config.scm.exploration_set[intervention_set_idx]
-            intervention_level = network_observation_at_X[-1][intervention_set_idx]
+            intervention_level = []
+            for var in intervention_set:
+                var_idx = cbo_config.scm.variables.index(var)
+                intervention_level.append(network_observation_at_X[-1][var_idx].item())
+            intervention_level = torch.tensor(intervention_level)
             cost = cbo_config.scm.costs[constants.CBO.INTERVENE](intervention_set=intervention_set,
                                                                  intervention_levels = [intervention_level])
             target_interventional_mean = -mean_at_X[-1]
+            print(f"Intervention: {intervention_set}, {intervention_level}, target: {target_interventional_mean}")
             # Add the new x-value to the intervention dataset
             if len(cbo_config.scm.interventions[
                        cbo_config.scm.exploration_set.index(intervention_set)][
                        constants.CBO.INTERVENTIONS_X_INDEX]) == 0:
                 cbo_config.scm.interventions[cbo_config.scm.exploration_set.index(intervention_set)][
                     constants.CBO.INTERVENTIONS_X_INDEX] = \
-                    np.array([[intervention_level]])
+                    np.array([intervention_level.numpy()])
             else:
                 cbo_config.scm.interventions[
                     cbo_config.scm.exploration_set.index(intervention_set)][
@@ -227,7 +236,7 @@ def mcbo_trial(
                     cbo_config.scm.interventions[
                         cbo_config.scm.exploration_set.index(intervention_set)][
                         constants.CBO.INTERVENTIONS_X_INDEX],
-                    np.array([[intervention_level]]), axis=0)
+                    np.array([intervention_level.numpy()]), axis=0)
 
             # Add the new y-value to the intervention dataset
             if len(cbo_config.scm.interventions[
