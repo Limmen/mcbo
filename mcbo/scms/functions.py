@@ -355,6 +355,66 @@ class ToyGraph(CausalEnv):
         return output
 
 
+class ToyUCGraph(CausalEnv):
+    r""" The ToyGraph environment from [agliettiCausalBayesianOptimization2020].
+    """
+    def __init__(self, uc_noise: float, noise_scales=1.0):
+        parent_nodes = [[], [0], [0,1]]
+        dag = DAG(parent_nodes)
+        super(ToyUCGraph, self).__init__(dag)
+        self.valid_targets = [
+            torch.tensor([0, 1, 0]),
+            torch.tensor([1, 0, 0]),
+            torch.tensor([0, 0, 0]),
+        ]
+        self.uc_noise = uc_noise
+
+        self.additive_noise_dists = functions_utils.noise_scales_to_normals(
+            noise_scales, self.dag.get_n_nodes()
+        )
+
+    def do_map(self, X):
+        r"""Maps an input in [0,1] to the range used in this environment"""
+        B = X.clone()
+        B[..., 0] = 10.0 * X[..., 0] - 5.0
+        B[..., 1] = 25 * X[..., 1] - 5.0
+        return B
+
+    def evaluate(self, X):
+        self.check_input(X)
+        X_do = X[
+               ..., : self.dag.get_n_nodes()
+               ]  # seperate the binary part from the intervention part
+        X = X[..., self.dag.get_n_nodes() :]
+        X = self.do_map(X)
+        output = torch.empty(X.shape[:-1] + torch.Size([self.dag.get_n_nodes()]))
+        noise0 = self.additive_noise_dists[0].rsample(sample_shape=output[..., 0].shape)
+        uc = Normal(0, self.uc_noise)
+        noise3 = uc.rsample(output[..., 0].shape)
+        # print(noise0)
+        # print(self.additive_noise_dists[0])
+        # noise3 = self.additive_noise_dists[3].rsample(sample_shape=output[..., 0].shape)
+        output[..., 0] = self.do_int(noise0 + noise3, X_do[..., 0], X[..., 0])
+
+        noise1 = self.additive_noise_dists[1].rsample(sample_shape=output[..., 1].shape)
+        output[..., 1] = self.do_int(
+            (torch.exp(-output[..., 0]) -1.5 + noise1), X_do[..., 1], X[..., 1]
+        )
+
+        noise2 = self.additive_noise_dists[2].rsample(sample_shape=output[..., 2].shape)
+        unintervened_output_2 = (
+                torch.cos(output[..., 1]) - torch.exp(-output[..., 1] / 20.0) + noise2 + noise3
+        )
+        r'''
+        [agliettiCausalBayesianOptimization2020] always minimizes outcomes whilst we 
+        maximize, so I take the negative of the final output. 
+        '''
+        output[..., 2] = -self.do_int(unintervened_output_2, X_do[..., 2], X[..., 2])
+
+        return output
+
+
+
 class PSAGraph(CausalEnv):
     r""" The PSAGraph environment from [agliettiCausalBayesianOptimization2020].
     """
