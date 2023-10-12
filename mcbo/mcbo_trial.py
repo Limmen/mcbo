@@ -3,6 +3,7 @@ import numpy as np
 import time
 import random
 import torch
+import math
 from typing import Callable, List
 from mcbo.utils.initial_design import generate_initial_design
 from os_cbo.dtos.cbo.cbo_results import CBOResults
@@ -35,10 +36,10 @@ def mcbo_trial(
     observation_at_X = network_to_objective_transform(network_observation_at_X)
 
     # Current best objective value.
-    best_obs_val = observation_at_X.max().item()
+    # best_obs_val = observation_at_X.max().item()
 
     # Historical best observed objective values and running times.
-    hist_best_obs_vals = [best_obs_val]
+    # hist_best_obs_vals = [best_obs_val]
     runtimes = []
 
     results = CBOResults(remaining_budget=budget, exploration_set=cbo_config.scm.exploration_set)
@@ -151,39 +152,8 @@ def mcbo_trial(
 
         # New suggested point
         t0 = time.time()
-        new_x, new_net = get_new_suggested_point(
-            X=X,
-            network_observation_at_X=network_observation_at_X,
-            observation_at_X=observation_at_X,
-            algo_profile=algo_profile,
-            env_profile=env_profile,
-            function_network=function_network,
-            network_to_objective_transform=network_to_objective_transform,
-            old_nets=old_nets,
-        )
-        if new_net is not None:
-            old_nets.append(new_net)
-        t1 = time.time()
-        runtimes.append(t1 - t0)
-
-        # Evaluate network at new point
-        network_observation_at_new_x = function_network(new_x)
-
-        # The mean value of the new action.
-        mean_at_new_x = obj_mean(
-            new_x, function_network, network_to_objective_transform
-        )
-
-        # Evaluate objective at new point
-        observation_at_new_x = network_to_objective_transform(
-            network_observation_at_new_x
-        )
-
-        intervention_set_identifiers = list(map(lambda x: int(x), new_x.numpy()[0][0:3].tolist()))
-        if 1 in intervention_set_identifiers:
-            intervention_set_idx = intervention_set_identifiers.index(1)
-        intervention_set = cbo_config.scm.exploration_set[intervention_set_idx]
-        intervention_level = np.array([network_observation_at_new_x.numpy()[0][intervention_set_idx]])
+        intervention_set_identifiers = []
+        intervention_set = []
 
         if not cbo_config.scm.causal_gp_config.causal_prior:
             collect_observations = False
@@ -193,35 +163,113 @@ def mcbo_trial(
                 cbo_config=cbo_config, state=results, logger=logging.getLogger(), mcbo=True
             )
         intervene = not collect_observations
-        if 1 not in intervention_set_identifiers:
+
+        if len(X) > 0 and intervene:
+            new_x, new_net = get_new_suggested_point(
+                X=X,
+                network_observation_at_X=network_observation_at_X,
+                observation_at_X=observation_at_X,
+                algo_profile=algo_profile,
+                env_profile=env_profile,
+                function_network=function_network,
+                network_to_objective_transform=network_to_objective_transform,
+                old_nets=old_nets,
+            )
+            if new_net is not None:
+                old_nets.append(new_net)
+
+            # Evaluate network at new point
+            network_observation_at_new_x = function_network(new_x)
+
+            # The mean value of the new action.
+            mean_at_new_x = obj_mean(
+                new_x, function_network, network_to_objective_transform
+            )
+            # Evaluate objective at new point
+            observation_at_new_x = network_to_objective_transform(
+                network_observation_at_new_x
+            )
+            intervention_set_identifiers = list(map(lambda x: int(x), new_x.numpy()[0][0:3].tolist()))
+            if 1 in intervention_set_identifiers:
+                intervention_set_idx = intervention_set_identifiers.index(1)
+                intervention_set = cbo_config.scm.exploration_set[intervention_set_idx]
+                intervention_level = np.array([network_observation_at_new_x.numpy()[0][intervention_set_idx]])
+        t1 = time.time()
+        runtimes.append(t1 - t0)
+
+        if 1 not in intervention_set_identifiers and len(intervention_set_identifiers) > 0:
             intervene=False
 
         if intervene:
 
-            # Update training data
-            if mean_at_X is None:
-                mean_at_X = mean_at_new_x
-            else:
-                mean_at_X = torch.cat([mean_at_X, mean_at_new_x], 0)
-            X = torch.cat([X, new_x], 0)
-            network_observation_at_X = torch.cat(
-                [network_observation_at_X, network_observation_at_new_x], 0
-            )
-            observation_at_X = torch.cat([observation_at_X, observation_at_new_x], 0)
-            best_obs_val = observation_at_X.max().item()
-            hist_best_obs_vals.append(best_obs_val)
+            if (results.num_intervene_decisions < 5 and results.num_observe_decisions > 5) or len(intervention_set_identifiers) == 0:
+                estimated_targets = []
+                estimated_levels = []
+                for intervention_set_idx in range(len(cbo_config.scm.exploration_set)):
+                    estimated_target, estimated_level = CBOUtil.best_estimated_intervention(
+                        cbo_config=cbo_config, intervention_set_idx=intervention_set_idx)
+                    estimated_levels.append(estimated_level)
+                    if not math.isnan(estimated_target):
+                        estimated_targets.append(estimated_target)
+                    else:
+                        estimated_targets.append(1000)
+                best_idx = np.argmin(estimated_targets)
+                intervention_set = cbo_config.scm.exploration_set[best_idx]
+                intervention_level = estimated_levels[best_idx]
+                target_interventional_mean = CBOUtil.evaluate_interventional_mean_through_sampling(
+                    cbo_config=cbo_config,
+                    intervention_set=intervention_set,
+                    intervention_levels=estimated_levels,
+                    intervention_set_idx=best_idx,
+                    eps_noise_terms=[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+                )
+                cost = cbo_config.scm.costs[constants.CBO.INTERVENE](intervention_set=intervention_set,
+                                                                     intervention_levels = [intervention_level])
+                print(f"Estimated: {intervention_set}, {intervention_level}, target: {target_interventional_mean}")
+                intervention_set_identifiers = []
+                for i in range(len(cbo_config.scm.variables)):
+                    if cbo_config.scm.variables[i] in intervention_set:
+                        intervention_set_identifiers.append(1)
+                    else:
+                        intervention_set_identifiers.append(0)
+                # obs = []
+                # for var in cbo_config.scm.variables:
+                #     if var == cbo_config.scm.target_variable:
+                #         obs.append(target_interventional_mean)
+                #     else:
+                #         if var in intervention_set:
+                #             obs.append(intervention_level[intervention_set.index(var)])
+                #         else:
+                #             obs.append(0)
+                # X = torch.cat([X, torch.tensor([intervention_set_identifiers + obs])], 0)
+                intervention_level = torch.tensor(intervention_level)
 
-            intervention_set_idx = intervention_set_identifiers.index(1)
-            intervention_set = cbo_config.scm.exploration_set[intervention_set_idx]
-            intervention_level = []
-            for var in intervention_set:
-                var_idx = cbo_config.scm.variables.index(var)
-                intervention_level.append(network_observation_at_X[-1][var_idx].item())
-            intervention_level = torch.tensor(intervention_level)
-            cost = cbo_config.scm.costs[constants.CBO.INTERVENE](intervention_set=intervention_set,
-                                                                 intervention_levels = [intervention_level])
-            target_interventional_mean = -mean_at_X[-1]
-            print(f"Intervention: {intervention_set}, {intervention_level}, target: {target_interventional_mean}")
+            else:
+                # Update training data
+                if mean_at_X is None:
+                    mean_at_X = mean_at_new_x
+                else:
+                    mean_at_X = torch.cat([mean_at_X, mean_at_new_x], 0)
+                X = torch.cat([X, new_x], 0)
+                network_observation_at_X = torch.cat(
+                    [network_observation_at_X, network_observation_at_new_x], 0
+                )
+                observation_at_X = torch.cat([observation_at_X, observation_at_new_x], 0)
+                # best_obs_val = observation_at_X.max().item()
+                # hist_best_obs_vals.append(best_obs_val)
+
+                intervention_set_idx = intervention_set_identifiers.index(1)
+                intervention_set = cbo_config.scm.exploration_set[intervention_set_idx]
+                intervention_level = []
+                for var in intervention_set:
+                    var_idx = cbo_config.scm.variables.index(var)
+                    intervention_level.append(network_observation_at_X[-1][var_idx].item())
+                intervention_level = torch.tensor(intervention_level)
+                cost = cbo_config.scm.costs[constants.CBO.INTERVENE](intervention_set=intervention_set,
+                                                                     intervention_levels = [intervention_level])
+                target_interventional_mean = -mean_at_X[-1]
+                print(f"Intervention: {intervention_set}, {intervention_level}, target: {target_interventional_mean}")
+
             # Add the new x-value to the intervention dataset
             if len(cbo_config.scm.interventions[
                        cbo_config.scm.exploration_set.index(intervention_set)][

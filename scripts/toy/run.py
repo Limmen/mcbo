@@ -37,7 +37,7 @@ def toygraph_config() -> CBOConfig:
     maximum_number_of_observations = 10
     kappa = 10
     samples_for_mc_estimation = 1
-    epsilon = 1.0
+    epsilon = 0.0
     eps_noise_terms = [0.5, 4, 0.05]
     lengthscale_rbf_kernel = 1.0
     variance_rbf_kernel = 1
@@ -78,7 +78,7 @@ def toygraph_config() -> CBOConfig:
 
     # Specify observation acquisition config
     observation_acquisition_config = ObservationAcquisitionFunctionConfig(
-        kappa=kappa, type=ObservationAcquisitionFunctionType.OSCO, epsilon=epsilon,
+        kappa=kappa, type=ObservationAcquisitionFunctionType.EPSILON_GREEDY, epsilon=epsilon,
         samples_for_mc_estimation=samples_for_mc_estimation, initial_collection_size=num_initial_observations)
 
     # Specify CBO config
@@ -109,12 +109,12 @@ if __name__ == '__main__':
         return env.evaluate(X=X)
     algo_profile = {
         "algo": "NMCBO",
-        "seed": 15781,
+        "seed": 7472374,
         "n_init_evals": 2 * (env_profile["input_dim"] + 1),
         "n_bo_iter": 100,
         "beta": 0.5,
-        "initial_obs_samples": 1,
-        "initial_int_samples": 1,
+        "initial_obs_samples": 2,
+        "initial_int_samples": 0,
         "batch_size": 32,
     }
 

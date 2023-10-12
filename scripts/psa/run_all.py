@@ -102,9 +102,11 @@ if __name__ == '__main__':
     env_profile = env.get_env_profile()
     def function_network(X: Tensor):
         return env.evaluate(X=X)
+    random.seed(7815)
     seeds = [561512, 351, 5126, 2350, 16391, 52101, 3520210, 11124, 61912, 888812, 235610, 12511,
              44102, 21501, 5112, 35011,
              7776612, 22212, 2019850, 98212, 333901]
+    random.shuffle(seeds)
     intervene_costs = [math.pow(2, 4)]
     observation_costs = [math.pow(2, -2), math.pow(2, 0), math.pow(2, 2), math.pow(2, 4)]
     observation_acquisitions = [

@@ -113,8 +113,8 @@ if __name__ == '__main__':
         "n_init_evals": 2 * (env_profile["input_dim"] + 1),
         "n_bo_iter": 100,
         "beta": 0.5,
-        "initial_obs_samples": 1,
-        "initial_int_samples": 1,
+        "initial_obs_samples": 0,
+        "initial_int_samples": 0,
         "batch_size": 32,
     }
 
