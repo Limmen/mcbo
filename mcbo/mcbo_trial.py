@@ -102,15 +102,19 @@ def mcbo_trial(
             new_obs_copy = new_observations.copy()
             new_obs_copy[0][-1] = -new_obs_copy[0][-1]
             observation_set = variables
-            # Update the observational GPs with the new data
-            cbo_config.scm.update_observational_gps(new_observations=new_obs_copy,
-                                                    observation_set=observation_set)
+            try:
+                # Update the observational GPs with the new data
+                cbo_config.scm.update_observational_gps(new_observations=new_obs_copy,
+                                                        observation_set=observation_set)
 
-            # Update the causal prior with the new data
-            mean_functions, var_functions = CBOUtil.update_causal_prior(
-                cbo_config=cbo_config, F=CBOUtil.copy_observational_gps(cbo_config=cbo_config))
-            cbo_config.scm.mean_functions_causal_do_prior = mean_functions
-            cbo_config.scm.var_functions_causal_do_prior = var_functions
+                # Update the causal prior with the new data
+                mean_functions, var_functions = CBOUtil.update_causal_prior(
+                    cbo_config=cbo_config, F=CBOUtil.copy_observational_gps(cbo_config=cbo_config))
+                cbo_config.scm.mean_functions_causal_do_prior = mean_functions
+                cbo_config.scm.var_functions_causal_do_prior = var_functions
+
+            except Exception as e:
+                print(f"There was an error updating the observational GPs: {str (e)}")
 
             # Cost
             cost = cbo_config.scm.costs[constants.CBO.OBSERVE](observation_set=cbo_config.scm.variables)
@@ -159,9 +163,19 @@ def mcbo_trial(
             collect_observations = False
             observation_set = cbo_config.scm.variables
         else:
-            collect_observations, _, observation_set = ObservationUtil.observation_policy(
-                cbo_config=cbo_config, state=results, logger=logging.getLogger(), mcbo=True
-            )
+            try:
+                collect_observations, _, observation_set = ObservationUtil.observation_policy(
+                    cbo_config=cbo_config, state=results, logger=logging.getLogger(), mcbo=True
+                )
+            except Exception as e:
+                print(f"There was an exception with the observation policy: {str(e)}")
+                collect_observations = False
+                observation_set = cbo_config.scm.variables
+
+        if (abs(cbo_config.scm.best_intervention_target - cbo_config.scm.optimal_intervention_target)) < 0.05:
+            collect_observations = False
+            observation_set = cbo_config.scm.variables
+
         intervene = not collect_observations
 
         if len(X) > 0 and intervene:
@@ -328,14 +342,18 @@ def mcbo_trial(
             new_obs_copy = new_obs_np.copy()
             new_obs_copy[0][-1] = -new_obs_copy[0][-1]
 
-            cbo_config.scm.update_observational_gps(new_observations=new_obs_copy,
-                                                    observation_set=observation_set)
+            try:
+                # Update the observational GPs with the new data
+                cbo_config.scm.update_observational_gps(new_observations=new_obs_copy,
+                                                        observation_set=observation_set)
 
-            # Update the causal prior with the new data
-            mean_functions, var_functions = CBOUtil.update_causal_prior(
-                cbo_config=cbo_config, F=CBOUtil.copy_observational_gps(cbo_config=cbo_config))
-            cbo_config.scm.mean_functions_causal_do_prior = mean_functions
-            cbo_config.scm.var_functions_causal_do_prior = var_functions
+                # Update the causal prior with the new data
+                mean_functions, var_functions = CBOUtil.update_causal_prior(
+                    cbo_config=cbo_config, F=CBOUtil.copy_observational_gps(cbo_config=cbo_config))
+                cbo_config.scm.mean_functions_causal_do_prior = mean_functions
+                cbo_config.scm.var_functions_causal_do_prior = var_functions
+            except Exception as e:
+                print(f"There was an error updating the observational GPs: {str (e)}")
 
             results.num_observe_decisions += 1
             results.actions.append(0)
