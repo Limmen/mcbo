@@ -133,7 +133,11 @@ def mcbo_trial(
         else:
             # If the previous action was an intervention, update only the interventional GP of that particular
             # intervention
-            if len(results.interventions) > 0:
+            if len(results.interventions) > 0 and results.num_observe_decisions > 0:
+                mean_functions, var_functions = CBOUtil.update_causal_prior(
+                    cbo_config=cbo_config, F=CBOUtil.copy_observational_gps(cbo_config=cbo_config))
+                cbo_config.scm.mean_functions_causal_do_prior = mean_functions
+                cbo_config.scm.var_functions_causal_do_prior = var_functions
                 cbo_config.scm.update_interventional_gp(intervention_set=results.interventions[-1])
 
     old_nets = []  # only used by NMCBO to reuse old computation
@@ -151,7 +155,11 @@ def mcbo_trial(
         else:
             # If the previous action was an intervention, update only the interventional GP of that particular
             # intervention
-            if len(results.interventions) > 0:
+            if len(results.interventions) > 0 and results.num_observe_decisions > 0:
+                mean_functions, var_functions = CBOUtil.update_causal_prior(
+                    cbo_config=cbo_config, F=CBOUtil.copy_observational_gps(cbo_config=cbo_config))
+                cbo_config.scm.mean_functions_causal_do_prior = mean_functions
+                cbo_config.scm.var_functions_causal_do_prior = var_functions
                 cbo_config.scm.update_interventional_gp(intervention_set=results.interventions[-1])
 
         # New suggested point

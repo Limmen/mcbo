@@ -105,6 +105,7 @@ if __name__ == '__main__':
     seeds = [561512, 351, 5126, 2350, 16391, 52101, 3520210, 11124, 61912, 888812, 235610, 12511,
              44102, 21501, 5112, 35011,
              7776612, 22212, 2019850, 98212, 333901]
+    seeds.reverse()
     intervene_costs = [math.pow(2, 4)]
     observation_costs = [math.pow(2, -2), math.pow(2, 0), math.pow(2, 2), math.pow(2, 4)]
     observation_acquisitions = [
