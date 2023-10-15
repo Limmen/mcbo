@@ -140,14 +140,18 @@ if __name__ == '__main__':
                                                                              intervene_cost=intervene_cost, seed=seed,
                                                                              mc_samples=mc_samples, epsilon=epsilon,
                                                                              observation_acquisition=obs_acquisition)
+                                                initial_obs_samples = 0
+                                                initial_int_samples = 0
+                                                if obs_acquisition != ObservationAcquisitionFunctionType.OSCO:
+                                                    initial_obs_samples = 2
                                                 algo_profile = {
                                                     "algo": "NMCBO",
                                                     "seed": seed,
                                                     "n_init_evals": 2 * (env_profile["input_dim"] + 1),
                                                     "n_bo_iter": 100,
                                                     "beta": 0.5,
-                                                    "initial_obs_samples": 1,
-                                                    "initial_int_samples": 1,
+                                                    "initial_obs_samples": initial_obs_samples,
+                                                    "initial_int_samples": initial_int_samples,
                                                     "batch_size": 32,
                                                 }
                                                 mcbo_trial(
